@@ -10,10 +10,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
+using static ExileCore.PoEMemory.MemoryObjects.ServerInventory;
 
 namespace ClickIt
 {
@@ -21,28 +19,32 @@ namespace ClickIt
     {
         private Stopwatch Timer { get; } = new Stopwatch();
         private Random Random { get; } = new Random();
-        public static ClickIt Controller { get; set; }
-        public int[,] inventorySlots { get; set; } = new int[0, 0];
-        public ServerInventory InventoryItems { get; set; }
         private TimeCache<List<LabelOnGround>> CachedLabels { get; set; }
         private RectangleF Gamewindow;
+        //private Func<Entity, bool, Vector2?> FindSpotInInventoryDelegate;
+
+        public IList<InventSlotItem> InventorySlotItems;
+        public Entity?[,] TwoDimensionalInventory;
+        public IList<Entity> Items;
+        public ulong LastInventoryHash;
+
         public override bool Initialise()
         {
-            Controller = this;
             Gamewindow = GameController.Window.GetWindowRectangle();
-            Settings.ReloadPluginButton.OnPressed += () => { ToggleCaching(); };
+            Settings.ReloadPluginButton.OnPressed += ToggleCaching;
 
             if (Settings.CachingEnable)
             {
                 CachedLabels = new TimeCache<List<LabelOnGround>>(UpdateLabelComponent, Settings.CacheIntervall);
             }
-            
+            UpdateInventory();
+            //FindSpotInInventoryDelegate = GameController.PluginBridge.GetMethod<Func<Entity, bool, Vector2?>>("AutomationCore.FindSpotInInventory");
             Timer.Start();
             return true;
         }
         private void ToggleCaching()
         {
-            if(Settings.CachingEnable.Value && CachedLabels == null)
+            if (Settings.CachingEnable.Value && CachedLabels == null)
             {
                 CachedLabels = new TimeCache<List<LabelOnGround>>(UpdateLabelComponent, Settings.CacheIntervall);
             }
@@ -54,18 +56,28 @@ namespace ClickIt
 
         public override Job Tick()
         {
-            InventoryItems = GameController.Game.IngameState.ServerData.PlayerInventories[0].Inventory;
-            inventorySlots = Misc.GetContainer2DArray(InventoryItems);
+            UpdateInventory();
             if (!Input.GetKeyState(Settings.ClickLabelKey.Value)) return null;
             if (GameController.IngameState.IngameUi.ChatTitlePanel.IsVisible) return null;
             if (Settings.BlockOnOpenLeftPanel && GameController.IngameState.IngameUi.OpenLeftPanel.Address != 0) return null;
             if (GameController.Game.IngameState.IngameUi.ItemsOnGroundLabelsVisible.Count < 1) return null;
             if (Timer.ElapsedMilliseconds < Settings.WaitTimeInMs.Value - 10 + Random.Next(0, 20)) return null;
             if (GameController.Area.CurrentArea.IsHideout || GameController.Area.CurrentArea.IsTown) return null;
-           
+
             Timer.Restart();
             ClickLabel();
+
             return null;
+        }
+        private void UpdateInventory()
+        {
+            var newHash = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventoryHash;
+            if (newHash == LastInventoryHash) return;
+
+            LastInventoryHash = newHash;
+            InventorySlotItems = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventorySlotItems;
+            TwoDimensionalInventory = Utils.Get2DInventory(InventorySlotItems);
+            Items = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.Items;
         }
 
         private List<LabelOnGround> UpdateLabelComponent() =>
@@ -87,17 +99,17 @@ namespace ClickIt
             LabelOnGround nextLabel;
             if (Settings.CachingEnable) nextLabel = GetLabelCaching();
             else nextLabel = GetLabelNoCaching();
-            
+
             if (nextLabel == null)
             {
                 if (Settings.DebugMode) LogMessage("nextLabel in ClickLabel() is null");
                 return;
             }
 
-            var centerOfLabel = nextLabel?.Label?.GetClientRect().Center 
+            var centerOfLabel = nextLabel?.Label?.GetClientRect().Center
                 + Gamewindow.TopLeft
                 + new Vector2(Random.Next(0, 2), Random.Next(0, 2));
-            
+
             if (!centerOfLabel.HasValue)
             {
                 if (Settings.DebugMode) LogMessage("centerOfLabel has no Value");
@@ -108,14 +120,11 @@ namespace ClickIt
         }
         private LabelOnGround GetLabelCaching()
         {
-            var label = CachedLabels.Value.Find(x => x.ItemOnGround.DistancePlayer <= Settings.ClickDistance && 
-                (Settings.ClickItems.Value && 
-                x.ItemOnGround.Type == EntityType.WorldItem && 
-                    (!x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Archnemesis/ArchnemesisMod") && 
-                    Misc.CanFitInventory(new CustomItem(x, GameController.Files)) || 
-                    (x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Archnemesis/ArchnemesisMod") && 
-                    !GameController.IngameState.IngameUi.ArchnemesisInventoryPanel.InventoryFull)) && 
-                (!Settings.IgnoreUniques || x.ItemOnGround.GetComponent<WorldItem>()?.ItemEntity.GetComponent<Mods>()?.ItemRarity != ItemRarity.Unique || 
+            var label = CachedLabels.Value.Find(x => x.ItemOnGround.DistancePlayer <= Settings.ClickDistance &&
+                (Settings.ClickItems.Value &&
+                x.ItemOnGround.Type == EntityType.WorldItem &&
+                Utils.FindSpotInInventory(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, TwoDimensionalInventory, Items, false) != null &&
+                (!Settings.IgnoreUniques || x.ItemOnGround.GetComponent<WorldItem>()?.ItemEntity.GetComponent<Mods>()?.ItemRarity != ItemRarity.Unique ||
                 x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Metamorphosis/Metamorphosis")) ||
                 Settings.ClickChests.Value && x.ItemOnGround.Type == EntityType.Chest ||
                 Settings.ClickAreaTransitions.Value && x.ItemOnGround.Type == EntityType.AreaTransition));
@@ -135,10 +144,7 @@ namespace ClickIt
             return list.Find(x => x.ItemOnGround.DistancePlayer <= Settings.ClickDistance &&
                 (Settings.ClickItems.Value &&
                 x.ItemOnGround.Type == EntityType.WorldItem &&
-                    (!x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Archnemesis/ArchnemesisMod") &&
-                    Misc.CanFitInventory(new CustomItem(x, GameController.Files)) ||
-                    (x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Archnemesis/ArchnemesisMod") &&
-                    !GameController.IngameState.IngameUi.ArchnemesisInventoryPanel.InventoryFull)) &&
+                Utils.FindSpotInInventory(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, TwoDimensionalInventory, Items, false) != null &&
                 (!Settings.IgnoreUniques || x.ItemOnGround.GetComponent<WorldItem>()?.ItemEntity.GetComponent<Mods>()?.ItemRarity != ItemRarity.Unique ||
                 x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Metamorphosis/Metamorphosis")) ||
                 Settings.ClickChests.Value && x.ItemOnGround.Type == EntityType.Chest ||
