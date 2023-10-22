@@ -71,10 +71,10 @@ namespace ClickIt
         }
         private void UpdateInventory()
         {
-            var newHash = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventoryHash;
-            if (newHash == LastInventoryHash) return;
+            //var newHash = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventoryHash;
+            //if (newHash == LastInventoryHash) return;
 
-            LastInventoryHash = newHash;
+            //LastInventoryHash = newHash;
             InventorySlotItems = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventorySlotItems;
             TwoDimensionalInventory = Utils.Get2DInventory(InventorySlotItems);
             Items = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.Items;
