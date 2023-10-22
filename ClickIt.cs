@@ -11,7 +11,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Windows.Forms;
-using static ExileCore.PoEMemory.MemoryObjects.ServerInventory;
 
 namespace ClickIt
 {
@@ -21,12 +20,9 @@ namespace ClickIt
         private Random Random { get; } = new Random();
         private TimeCache<List<LabelOnGround>> CachedLabels { get; set; }
         private RectangleF Gamewindow;
-        //private Func<Entity, bool, Vector2?> FindSpotInInventoryDelegate;
+        //private delegate Vector2? FindSpotInInventoryDelegate_2(Entity item, bool strict);
 
-        public IList<InventSlotItem> InventorySlotItems;
-        public Entity?[,] TwoDimensionalInventory;
-        public IList<Entity> Items;
-        public ulong LastInventoryHash;
+        private Func<Entity, bool, Vector2?> FindSpotInInventoryDelegate;
 
         public override bool Initialise()
         {
@@ -37,8 +33,10 @@ namespace ClickIt
             {
                 CachedLabels = new TimeCache<List<LabelOnGround>>(UpdateLabelComponent, Settings.CacheIntervall);
             }
-            UpdateInventory();
-            //FindSpotInInventoryDelegate = GameController.PluginBridge.GetMethod<Func<Entity, bool, Vector2?>>("AutomationCore.FindSpotInInventory");
+
+            FindSpotInInventoryDelegate = GameController.PluginBridge.GetMethod<Func<Entity, bool, Vector2?>>("AutomationCore.FindSpotInInventory");
+
+            //FindSpotInInventoryDelegate_2 findSpotInInventoryDelegate_2 = GameController.PluginBridge.GetMethod<>("AutomationCore.FindSpotInInventory");
             Timer.Start();
             return true;
         }
@@ -56,7 +54,10 @@ namespace ClickIt
 
         public override Job Tick()
         {
-            UpdateInventory();
+            if (FindSpotInInventoryDelegate == null)
+            {
+                FindSpotInInventoryDelegate = GameController.PluginBridge.GetMethod<Func<Entity, bool, Vector2?>>("AutomationCore.FindSpotInInventory");
+            }
             if (!Input.GetKeyState(Settings.ClickLabelKey.Value)) return null;
             if (GameController.IngameState.IngameUi.ChatTitlePanel.IsVisible) return null;
             if (Settings.BlockOnOpenLeftPanel && GameController.IngameState.IngameUi.OpenLeftPanel.Address != 0) return null;
@@ -68,16 +69,6 @@ namespace ClickIt
             ClickLabel();
 
             return null;
-        }
-        private void UpdateInventory()
-        {
-            //var newHash = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventoryHash;
-            //if (newHash == LastInventoryHash) return;
-
-            //LastInventoryHash = newHash;
-            InventorySlotItems = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventorySlotItems;
-            TwoDimensionalInventory = Utils.Get2DInventory(InventorySlotItems);
-            Items = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.Items;
         }
 
         private List<LabelOnGround> UpdateLabelComponent() =>
@@ -123,7 +114,7 @@ namespace ClickIt
             var label = CachedLabels.Value.Find(x => x.ItemOnGround.DistancePlayer <= Settings.ClickDistance &&
                 (Settings.ClickItems.Value &&
                 x.ItemOnGround.Type == EntityType.WorldItem &&
-                Utils.FindSpotInInventory(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, TwoDimensionalInventory, Items, false) != null &&
+                FindSpotInInventoryDelegate.Invoke(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, false) != null &&
                 (!Settings.IgnoreUniques || x.ItemOnGround.GetComponent<WorldItem>()?.ItemEntity.GetComponent<Mods>()?.ItemRarity != ItemRarity.Unique ||
                 x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Metamorphosis/Metamorphosis")) ||
                 Settings.ClickChests.Value && x.ItemOnGround.Type == EntityType.Chest ||
@@ -144,7 +135,7 @@ namespace ClickIt
             return list.Find(x => x.ItemOnGround.DistancePlayer <= Settings.ClickDistance &&
                 (Settings.ClickItems.Value &&
                 x.ItemOnGround.Type == EntityType.WorldItem &&
-                Utils.FindSpotInInventory(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, TwoDimensionalInventory, Items, false) != null &&
+                FindSpotInInventoryDelegate.Invoke(x.ItemOnGround.GetComponent<WorldItem>().ItemEntity, false) != null &&
                 (!Settings.IgnoreUniques || x.ItemOnGround.GetComponent<WorldItem>()?.ItemEntity.GetComponent<Mods>()?.ItemRarity != ItemRarity.Unique ||
                 x.ItemOnGround.GetComponent<WorldItem>().ItemEntity.Path.StartsWith("Metadata/Items/Metamorphosis/Metamorphosis")) ||
                 Settings.ClickChests.Value && x.ItemOnGround.Type == EntityType.Chest ||
