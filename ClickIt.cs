@@ -20,8 +20,6 @@ namespace ClickIt
         private Random Random { get; } = new Random();
         private TimeCache<List<LabelOnGround>> CachedLabels { get; set; }
         private RectangleF Gamewindow;
-        //private delegate Vector2? FindSpotInInventoryDelegate_2(Entity item, bool strict);
-
         private Func<Entity, bool, Vector2?> FindSpotInInventoryDelegate;
 
         public override bool Initialise()
@@ -36,7 +34,6 @@ namespace ClickIt
 
             FindSpotInInventoryDelegate = GameController.PluginBridge.GetMethod<Func<Entity, bool, Vector2?>>("AutomationCore.FindSpotInInventory");
 
-            //FindSpotInInventoryDelegate_2 findSpotInInventoryDelegate_2 = GameController.PluginBridge.GetMethod<>("AutomationCore.FindSpotInInventory");
             Timer.Start();
             return true;
         }
